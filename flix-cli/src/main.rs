@@ -6,74 +6,54 @@ use subcommands::Commands;
 #[derive(Parser)]
 #[command(
     name = "flix",
-    // This fixes the panic by giving the Version action something to print
     version = env!("CARGO_PKG_VERSION"),
     about = "The Blazingly Fast Package Manager",
-    disable_version_flag = true, // Allows us to use -v for version and -V for git-hash
+    disable_version_flag = true,
     arg_required_else_help = true
 )]
-struct Cli {
+pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
 
     /// Print version information
     #[arg(short = 'v', long = "version", action = clap::ArgAction::Version)]
-    pub version: bool,
+    pub version: Option<bool>,
 }
 
 fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        // Prefixed unused variables with underscores to silence compiler warnings
-        Commands::Install { 
-            url, 
-            shared, 
-            release, 
-            default: _, 
-            version: _ 
-        } => {
-            println!("🚀 Installing {}...", url);
-            println!("   Force:   {}", shared.force);
-            println!("   Quiet:   {}", shared.quiet);
-            println!("   Binary:  {}", release);
-            println!("   Tags:    {:?}", shared.tags);
-            
-            // Logic for engine::install will go here next
+        Commands::Install { url, shared, release, default, version } => {
+            flix_core::engine::install(&url, shared, release, default, version);
         }
 
         Commands::List { shared, show_version } => {
-            println!("📋 Listing packages...");
-            println!("   Filter Path: {:?}", shared.path);
-            println!("   Filter Tags: {:?}", shared.tags);
-            println!("   Show Hashes: {}", show_version);
-
-            // Logic for engine::list will go here next
+            flix_core::engine::list(shared, show_version);
         }
 
         Commands::Update { name, shared, release } => {
-            match name {
-                Some(n) => println!("🔄 Updating '{}' (Force: {})", n, shared.force),
-                None => println!("🔄 Updating all packages (Binary Mode: {})", release),
-            }
+            flix_core::engine::update(name.as_deref(), shared, release);
         }
 
         Commands::Remove { name, shared } => {
-            println!("🗑️ Removing {} (Auto-confirm: {})", name, shared.yes);
+            flix_core::engine::remove(&name, shared);
         }
 
         Commands::Default { set } => {
             if let Some(path) = set {
-                println!("⚙️ Setting global install path to: {}", path);
+                // We will build out a specific config-setter for this later, 
+                // but for now let's just acknowledge it.
+                println!("⚙️ Feature coming soon: Set default path to {}", path);
             }
         }
 
         Commands::ShellInit => {
-            println!("🐚 Initializing shell configuration...");
+            flix_core::engine::shell_init();
         }
 
         Commands::Setup => {
-            println!("🛠️ Running first-time setup...");
+            flix_core::engine::self_install();
         }
     }
 }
