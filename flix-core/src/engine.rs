@@ -1,8 +1,8 @@
-use crate::config::{load_config, save_config, enforce_flix_dir, PackageEntry, interactive_setup};
+use crate::config::{load_config, save_config, PackageEntry, interactive_setup};
 use git2::Repository;
 use std::env;
 use std::fs::{self, OpenOptions};
-use std::io::{Write, Read};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -12,12 +12,12 @@ pub fn install(url: &str, force: bool, tags: &[String], custom_path: Option<&str
     let package_name = url_clean.split('/').last().unwrap_or("app").to_string();
 
     if config.packages.contains_key(&package_name) && !force {
-        eprintln!("❌ Error: Package '{}' is already installed. Use --force to overwrite.", package_name);
+        eprintln!("❌ Error: Package '{}' already installed.", package_name);
         return;
     }
 
-    let install_dir = if let Some(p) = custom_path {
-        enforce_flix_dir(PathBuf::from(p))
+    let bin_dir = if let Some(p) = custom_path {
+        PathBuf::from(p)
     } else if let Some(p) = config.default_install_path.clone() {
         p
     } else {
@@ -27,38 +27,47 @@ pub fn install(url: &str, force: bool, tags: &[String], custom_path: Option<&str
         chosen
     };
 
-    if !check_write_permission(&install_dir) {
-        println!("🔐 Notice: {} requires elevated privileges. Sudo may be requested.", install_dir.display());
-    }
-
-    println!("🚀 Preparing to install '{}' to: {}", package_name, install_dir.display());
-
+    println!("🚀 Installing '{}'...", package_name);
     let temp_dir = env::temp_dir().join("flix_builds").join(&package_name);
     if temp_dir.exists() { let _ = fs::remove_dir_all(&temp_dir); }
 
-    println!("📦 Cloning repository...");
-    if let Err(e) = Repository::clone(url, &temp_dir) {
-        eprintln!("❌ Git Error: {}", e);
-        return;
-    }
+    let repo = match Repository::clone(url, &temp_dir) {
+        Ok(r) => r,
+        Err(e) => { eprintln!("❌ Git Error: {}", e); return; }
+    };
+
+    let head = repo.head().unwrap();
+    let commit_hash = head.target().unwrap().to_string();
 
     if let Some(bin_file) = detect_and_build(&temp_dir, &package_name) {
-        ensure_dir_exists(&install_dir);
-        let final_dest = install_dir.join(&package_name);
-        
-        println!("📥 Installing binary...");
+        ensure_dir_exists(&bin_dir);
+        let final_dest = bin_dir.join(&package_name);
         copy_with_sudo(&bin_file, &final_dest);
+
+        let mut final_tags = tags.to_vec();
+        if url.contains("github.com") { final_tags.push("github".into()); }
 
         config.packages.insert(package_name.clone(), PackageEntry {
             source: url.to_string(),
-            tags: tags.to_vec(),
-            generation: 1,
+            tags: final_tags,
+            version_hash: commit_hash[..8].to_string(),
             bin_path: final_dest,
         });
         save_config(&config);
-        println!("✅ Successfully installed '{}'!", package_name);
+        println!("✅ Installed '{}'!", package_name);
+    }
+}
+
+pub fn remove(name: &str) {
+    let mut config = load_config();
+    if let Some(entry) = config.packages.remove(name) {
+        if entry.bin_path.exists() {
+            let _ = Command::new("sudo").arg("rm").arg(&entry.bin_path).status();
+        }
+        save_config(&config);
+        println!("✅ Removed '{}'.", name);
     } else {
-        eprintln!("❌ Build failed: No Rust binary was generated.");
+        println!("⚠️ Package '{}' not found.", name);
     }
 }
 
@@ -66,129 +75,103 @@ pub fn update(name: Option<&str>, _force: bool) {
     let config = load_config();
     if let Some(pkg_name) = name {
         if let Some(entry) = config.packages.get(pkg_name) {
-            println!("🔄 Updating '{}'...", pkg_name);
             install(&entry.source, true, &entry.tags, None);
-        } else {
-            eprintln!("❌ Package '{}' not found.", pkg_name);
         }
     } else {
-        if config.packages.is_empty() {
-            println!("📭 Nothing to update.");
-            return;
+        for entry in config.packages.values() {
+            install(&entry.source, true, &entry.tags, None);
         }
-        println!("🔄 Updating all packages...");
-        let targets: Vec<(String, Vec<String>)> = config.packages.values()
-            .map(|e| (e.source.clone(), e.tags.clone()))
-            .collect();
-        for (source, tags) in targets {
-            install(&source, true, &tags, None);
-        }
-    }
-}
-
-pub fn remove(name: &str) {
-    let mut config = load_config();
-    if let Some(entry) = config.packages.remove(name) {
-        println!("🗑️ Removing binary: {}", entry.bin_path.display());
-        if entry.bin_path.exists() {
-            if fs::remove_file(&entry.bin_path).is_err() {
-                let _ = Command::new("sudo").arg("rm").arg(&entry.bin_path).status();
-            }
-        }
-        save_config(&config);
-        println!("✅ Removed '{}' from flix.", name);
-    } else {
-        println!("⚠️ Package '{}' not found.", name);
     }
 }
 
 pub fn list(tag: Option<&str>) {
     let config = load_config();
-    if config.packages.is_empty() {
-        println!("📭 No packages installed.");
-        return;
-    }
-    println!("📋 Installed packages:");
+    println!("{:<15} {:<10} {:<20}", "Package", "Hash", "Tags");
+    println!("{:-<45}", "");
     for (name, entry) in config.packages.iter() {
         if let Some(t) = tag {
             if !entry.tags.contains(&t.to_string()) { continue; }
         }
-        println!("  📦 {} -> {}", name, entry.bin_path.display());
+        println!("{:<15} {:<10} {:<20?}", name, entry.version_hash, entry.tags);
     }
+}
+
+pub fn self_install() {
+    let config = load_config();
+    let bin_dir = config.default_install_path.unwrap_or_else(|| PathBuf::from("/usr/local/flix/bin"));
+    let current_exe = env::current_exe().expect("Failed to get current exe path");
+    let target_path = bin_dir.join("flix");
+
+    ensure_dir_exists(&bin_dir);
+    copy_with_sudo(&current_exe, &target_path);
+    println!("✅ Flix installed to {}. Run 'flix shell-init'.", target_path.display());
 }
 
 pub fn shell_init() {
     let config = load_config();
-    let Some(install_path) = config.default_install_path else {
-        println!("⚠️ No default path set.");
-        return;
-    };
-    let path_line = format!("\nexport PATH=\"$PATH:{}\"", install_path.display());
-    let home = env::var("HOME").expect("Could not find HOME");
-    let profiles = vec![format!("{}/.bashrc", home), format!("{}/.zshrc", home)];
-    for profile_path in profiles {
-        let path = Path::new(&profile_path);
-        if path.exists() {
-            let contents = fs::read_to_string(path).unwrap_or_default();
-            if !contents.contains(&path_line.trim()) {
-                if let Ok(mut file) = OpenOptions::new().append(true).open(path) {
-                    let _ = writeln!(file, "{}", path_line);
-                    println!("✅ Added Flix to {}", profile_path);
+    if let Some(path) = config.default_install_path {
+        let path_str = path.to_string_lossy().to_string();
+        let line = format!("\n# Flix Package Manager\nexport PATH=\"$PATH:{}\"", path_str);
+        
+        let home = env::var("HOME").unwrap_or_else(|_| "/home".into());
+        let shells = [".bashrc", ".zshrc", ".profile"];
+        
+        let mut updated = false;
+
+        for sh in shells {
+            let p = PathBuf::from(&home).join(sh);
+            if p.exists() {
+                let contents = fs::read_to_string(&p).unwrap_or_default();
+                
+                // Check if the path is already in the file to avoid bloat
+                if !contents.contains(&path_str) {
+                    if let Ok(mut file) = OpenOptions::new().append(true).open(&p) {
+                        if let Err(e) = writeln!(file, "{}", line) {
+                            eprintln!("❌ Failed to write to {}: {}", sh, e);
+                        } else {
+                            println!("✅ Added Flix to {}", sh);
+                            updated = true;
+                        }
+                    }
+                } else {
+                    println!("ℹ️ Flix path already exists in {}", sh);
+                    updated = true;
                 }
             }
         }
+
+        if updated {
+            println!("\n✨ PATH updated! To use 'flix' immediately, run:");
+            println!("   source ~/.bashrc  (or your shell's config file)");
+        }
+    } else {
+        println!("⚠️ No default install path found in config. Run 'flix install' or 'flix setup' first.");
     }
 }
-
-fn check_write_permission(path: &Path) -> bool {
-    if !path.exists() {
-        return path.parent().map_or(false, |p| {
-            fs::metadata(p).map(|m| !m.permissions().readonly()).unwrap_or(false)
-        });
-    }
-    fs::metadata(path).map(|m| !m.permissions().readonly()).unwrap_or(false)
-}
-
 fn ensure_dir_exists(path: &Path) {
     if !path.exists() {
-        if fs::create_dir_all(path).is_err() {
-            let _ = Command::new("sudo").arg("mkdir").arg("-p").arg(path).status();
-        }
+        let _ = Command::new("sudo").arg("mkdir").arg("-p").arg(path).status();
     }
 }
 
 fn copy_with_sudo(from: &Path, to: &Path) {
-    if fs::copy(from, to).is_err() {
-        let _ = Command::new("sudo").arg("cp").arg(from).arg(to).status();
-    }
+    let _ = Command::new("sudo").arg("cp").arg(from).arg(to).status();
     let _ = Command::new("sudo").arg("chmod").arg("+x").arg(to).status();
 }
 
 fn detect_and_build(path: &Path, name: &str) -> Option<PathBuf> {
     if path.join("Cargo.toml").exists() {
-        println!("🦀 Rust project detected. Building...");
         let status = Command::new("cargo").arg("build").arg("--release").current_dir(path).status();
-        if let Ok(s) = status && s.success() {
+        if status.ok()?.success() {
             let bin = path.join("target/release").join(name);
             if bin.exists() { return Some(bin); }
-            if let Ok(entries) = fs::read_dir(path.join("target/release")) {
-                for entry in entries.flatten() {
+            if let Ok(rd) = fs::read_dir(path.join("target/release")) {
+                for entry in rd.flatten() {
                     let p = entry.path();
-                    if p.is_file() && !p.extension().map_or(false, |ext| ext == "d" || ext == "rlib") {
-                        return Some(p);
-                    }
+                    if p.is_file() && !p.extension().map_or(false, |e| e == "d") { return Some(p); }
                 }
             }
         }
     }
     None
-}
-
-pub fn set_default_path(new_path: &str) {
-    let mut config = load_config();
-    let p = enforce_flix_dir(PathBuf::from(new_path));
-    ensure_dir_exists(&p);
-    config.default_install_path = Some(p.clone());
-    save_config(&config);
-    println!("⚙️ Global default path updated to: {}", p.display());
 }
