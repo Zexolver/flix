@@ -1,9 +1,8 @@
 use clap::{Parser, Subcommand};
-use flix_core::engine;
+mod subcommands;
 
 #[derive(Parser)]
-#[command(name = "flix")]
-#[command(about = "An organized, blazingly fast package manager", long_about = None)]
+#[command(name = "flix", about = "The Blazingly Fast Package Manager", version)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -14,116 +13,41 @@ enum Commands {
     /// Install a package from a git URL
     Install {
         url: String,
-
-        /// Overwrite if package already exists
         #[arg(short, long)]
         force: bool,
-
-        /// Search for pre-built release binaries first
         #[arg(short, long)]
-        release: bool,
-
-        /// Mark as default package
-        #[arg(short, long)]
-        default: bool,
-
-        /// Reduce output verbosity
-        #[arg(short, long)]
-        quiet: bool,
-
-        /// Skip all prompts (automatic 'yes')
+        tags: Vec<String>,
+    },
+    /// Remove an installed package
+    Remove {
+        name: String,
         #[arg(short, long)]
         yes: bool,
-
-        /// Assign tags to this package (comma-separated)
-        #[arg(short, long, value_delimiter = ',')]
-        tags: Vec<String>,
-
-        /// Specify a custom installation path for this package
-        #[arg(short, long)]
-        path: Option<String>,
     },
-
-    /// Remove an installed package and its binary
-    Remove { 
-        name: String 
-    },
-
-    /// Update an existing package or all packages
-    Update { 
-        name: Option<String>,
-        
-        /// Force rebuild even if no changes detected
-        #[arg(short, long)]
-        force: bool,
-    },
-
-    /// List all packages managed by flix
+    /// List all installed packages
     List {
-        /// Filter packages by tag
         #[arg(short, long)]
         tag: Option<String>,
     },
-
-    /// Manage the global default installation directory
-    Default {
-        /// Set a new global default path
-        #[arg(short, long)]
-        set: Option<String>,
+    /// Update packages
+    Update {
+        name: Option<String>,
     },
-
-    /// Automate adding the flix bin path to your shell profile
+    /// Configure shell PATH
     ShellInit,
+    /// Install Flix to the system
+    Setup,
 }
 
 fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Install { 
-            url, 
-            force,
-            release: _, 
-            default: _, 
-            quiet: _, 
-            yes: _, 
-            tags, 
-            path 
-        } => {
-            engine::install(
-                &url, 
-                force,
-                &tags, 
-                path.as_deref()
-            );
-        }
-
-        Commands::Remove { name } => {
-            engine::remove(&name);
-        }
-
-        Commands::Update { name, force } => {
-            engine::update(name.as_deref(), force);
-        }
-
-        Commands::List { tag } => {
-            engine::list(tag.as_deref());
-        }
-
-        Commands::Default { set } => {
-            if let Some(new_path) = set {
-                engine::set_default_path(&new_path);
-            } else {
-                let config = flix_core::config::load_config();
-                match config.default_install_path {
-                    Some(p) => println!("📍 Current global default: {}", p.display()),
-                    None => println!("⚠️ No default path set. Run an install or use 'flix default --set <PATH>'."),
-                }
-            }
-        }
-
-        Commands::ShellInit => {
-            engine::shell_init();
-        }
+        Commands::Install { url, force, tags } => subcommands::handle_install(&url, force, tags),
+        Commands::Remove { name, yes } => subcommands::handle_remove(&name, yes),
+        Commands::List { tag } => flix_core::engine::list(tag.as_deref()),
+        Commands::Update { name } => flix_core::engine::update(name.as_deref(), false),
+        Commands::ShellInit => subcommands::handle_shell_init(),
+        Commands::Setup => subcommands::handle_setup(),
     }
 }
