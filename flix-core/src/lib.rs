@@ -20,8 +20,16 @@ pub mod config {
         pub bin_path: PathBuf,
     }
 
+    /// Determines config path based on installation type.
+    /// If /usr/local/flix exists and is writable (or we are sudo), use /usr/local/etc/flix
+    /// Otherwise, fallback to user home config.
     pub fn get_config_path() -> PathBuf {
-        if let Some(proj_dirs) = ProjectDirs::from("", "", "flix") {
+        let system_flix = PathBuf::from("/usr/local/flix");
+        let system_config = PathBuf::from("/usr/local/etc/flix/config.toml");
+
+        if system_flix.exists() || std::env::var("USER").unwrap_or_default() == "root" {
+            system_config
+        } else if let Some(proj_dirs) = ProjectDirs::from("", "", "flix") {
             proj_dirs.config_dir().join("config.toml")
         } else {
             PathBuf::from(".flix_config.toml")
@@ -41,17 +49,43 @@ pub mod config {
     pub fn save_config(config: &FlixConfig) {
         let path = get_config_path();
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).expect("Failed to create config directory");
+            if !parent.exists() {
+                let _ = fs::create_dir_all(parent);
+                // If standard create fails, we assume sudo is needed at the engine level,
+                // but for config saving, we try to be direct.
+            }
         }
         let toml_string = toml::to_string(config).expect("Failed to serialize config");
-        fs::write(path, toml_string).expect("Failed to write config file");
+        if let Err(_) = fs::write(&path, toml_string) {
+            // Fallback for system-wide config save if normal write fails
+            let tmp_path = std::env::temp_dir().join("flix_config.tmp");
+            let toml_string = toml::to_string(config).unwrap();
+            fs::write(&tmp_path, toml_string).unwrap();
+            let _ = std::process::Command::new("sudo")
+                .arg("mkdir")
+                .arg("-p")
+                .arg(path.parent().unwrap())
+                .status();
+            let _ = std::process::Command::new("sudo")
+                .arg("cp")
+                .arg(&tmp_path)
+                .arg(&path)
+                .status();
+        }
+    }
+
+    pub fn enforce_flix_dir(mut path: PathBuf) -> PathBuf {
+        if !path.ends_with("flix") {
+            path.push("flix");
+        }
+        path
     }
 
     pub fn interactive_setup() -> PathBuf {
         println!("\n👋 Welcome to Flix! Let's set up your default installation directory.");
-        println!("All packages will be stored in a dedicated 'flix' subfolder for organization.\n");
+        println!("All packages will be stored in a dedicated 'flix' subfolder.\n");
         
-        println!("[1] System-wide (requires sudo): /usr/local/bin/flix");
+        println!("[1] System-wide: /usr/local/flix");
         
         let home = std::env::var("HOME").unwrap_or_else(|_| "/home".into());
         let user_default = format!("{}/.local/bin/flix", home);
@@ -67,28 +101,23 @@ pub mod config {
         io::stdin().read_line(&mut input).unwrap();
         let choice = input.trim();
 
-        let path = match choice {
-            "2" => PathBuf::from(user_default),
+        match choice {
+            "2" => enforce_flix_dir(PathBuf::from(user_default)),
             "3" => {
                 print!("Enter custom path: ");
                 io::stdout().flush().unwrap();
                 let mut custom = String::new();
                 io::stdin().read_line(&mut custom).unwrap();
-                let mut p = PathBuf::from(custom.trim());
-                if !p.ends_with("flix") { p = p.join("flix"); }
-                p
+                enforce_flix_dir(PathBuf::from(custom.trim()))
             }
             "0" => std::process::exit(0),
-            _ => PathBuf::from("/usr/local/bin/flix"),
-        };
-
-        println!("✅ Default path set to: {}", path.display());
-        path
+            _ => PathBuf::from("/usr/local/flix"),
+        }
     }
 }
 
 pub mod engine {
-    use super::config::{load_config, save_config, PackageEntry, interactive_setup};
+    use super::config::{load_config, save_config, enforce_flix_dir, PackageEntry, interactive_setup};
     use git2::Repository;
     use std::env;
     use std::fs::{self, OpenOptions};
@@ -98,52 +127,48 @@ pub mod engine {
 
     pub fn install(
         url: &str,
-        _release: bool,
-        _default: bool,
-        _quiet: bool,
-        yes: bool,
+        force: bool,
         tags: &[String],
         custom_path: Option<&str>,
     ) {
         let mut config = load_config();
 
+        let url_clean = url.trim_end_matches(".git");
+        let package_name = url_clean.split('/').last().unwrap_or("app").to_string();
+
+        if config.packages.contains_key(&package_name) && !force {
+            eprintln!("❌ Error: Package '{}' is already installed. Use --force to overwrite.", package_name);
+            return;
+        }
+
         let install_dir = if let Some(p) = custom_path {
-            let mut path = PathBuf::from(p);
-            if !path.ends_with("flix") { path = path.join("flix"); }
-            path
+            enforce_flix_dir(PathBuf::from(p))
         } else if let Some(p) = config.default_install_path.clone() {
             p
         } else {
-            if yes {
-                PathBuf::from("/usr/local/bin/flix")
-            } else {
-                let chosen = interactive_setup();
-                config.default_install_path = Some(chosen.clone());
-                save_config(&config);
-                chosen
-            }
+            let chosen = interactive_setup();
+            config.default_install_path = Some(chosen.clone());
+            save_config(&config);
+            chosen
         };
 
-        println!("🚀 Preparing to install to: {}", install_dir.display());
-        ensure_dir_exists(&install_dir);
+        if !check_write_permission(&install_dir) {
+            println!("🔐 Notice: {} requires elevated privileges. Sudo may be requested.", install_dir.display());
+        }
 
-        let url_clean = url.trim_end_matches(".git");
-        let package_name = url_clean.split('/').last().unwrap_or("app").to_string();
+        println!("🚀 Preparing to install '{}' to: {}", package_name, install_dir.display());
 
         let temp_dir = env::temp_dir().join("flix_builds").join(&package_name);
         if temp_dir.exists() { let _ = fs::remove_dir_all(&temp_dir); }
 
         println!("📦 Cloning repository...");
         if let Err(e) = Repository::clone(url, &temp_dir) {
-            if e.to_string().contains("Auth") || e.to_string().contains("callback") {
-                eprintln!("❌ Error: Repository is private or requires authentication.");
-            } else {
-                eprintln!("❌ Error: Repository not found. Check the URL.");
-            }
+            eprintln!("❌ Git Error: {}", e);
             return;
         }
 
         if let Some(bin_file) = detect_and_build(&temp_dir, &package_name) {
+            ensure_dir_exists(&install_dir);
             let final_dest = install_dir.join(&package_name);
             
             println!("📥 Installing binary...");
@@ -162,17 +187,42 @@ pub mod engine {
         }
     }
 
+    pub fn update(name: Option<&str>, force: bool) {
+        let config = load_config();
+        
+        if let Some(pkg_name) = name {
+            if let Some(entry) = config.packages.get(pkg_name) {
+                println!("🔄 Updating '{}' (Force: {})...", pkg_name, force);
+                install(&entry.source, true, &entry.tags, None);
+            } else {
+                eprintln!("❌ Package '{}' not found.", pkg_name);
+            }
+        } else {
+            if config.packages.is_empty() {
+                println!("📭 Nothing to update.");
+                return;
+            }
+            println!("🔄 Updating all packages...");
+            let targets: Vec<(String, Vec<String>)> = config.packages.values()
+                .map(|e| (e.source.clone(), e.tags.clone()))
+                .collect();
+            
+            for (source, tags) in targets {
+                install(&source, true, &tags, None);
+            }
+        }
+    }
+
     pub fn shell_init() {
         let config = load_config();
         let Some(install_path) = config.default_install_path else {
-            println!("⚠️  No default path set. Run an install first!");
+            println!("⚠️ No default path set. Run an install first!");
             return;
         };
 
         let path_line = format!("\nexport PATH=\"$PATH:{}\"", install_path.display());
         let home = env::var("HOME").expect("Could not find HOME directory");
         
-        // Profiles to check
         let profiles = vec![
             format!("{}/.bashrc", home),
             format!("{}/.zshrc", home),
@@ -183,25 +233,26 @@ pub mod engine {
             let path = Path::new(&profile_path);
             if path.exists() {
                 let mut contents = String::new();
-                fs::File::open(path).unwrap().read_to_string(&mut contents).unwrap();
-                
-                if !contents.contains(&path_line.trim()) {
-                    let mut file = OpenOptions::new().append(true).open(path).unwrap();
-                    writeln!(file, "{}", path_line).expect("Failed to write to profile");
-                    println!("✅ Added Flix to {}", profile_path);
-                    updated = true;
-                } else {
-                    println!("ℹ️  Flix is already in {}", profile_path);
-                    updated = true;
+                if let Ok(mut f) = fs::File::open(path) {
+                    let _ = f.read_to_string(&mut contents);
+                    if !contents.contains(&path_line.trim()) {
+                        if let Ok(mut file) = OpenOptions::new().append(true).open(path) {
+                            let _ = writeln!(file, "{}", path_line);
+                            println!("✅ Added Flix to {}", profile_path);
+                            updated = true;
+                        }
+                    } else {
+                        println!("ℹ️ Flix is already in {}", profile_path);
+                        updated = true;
+                    }
                 }
             }
         }
 
         if updated {
-            println!("\n✨ Path updated! Restart your terminal or run: source ~/.bashrc (or ~/.zshrc)");
+            println!("\n✨ Path updated! Restart your terminal or run: source ~/.bashrc");
         } else {
-            println!("❌ No supported shell profile found (.bashrc or .zshrc).");
-            println!("Manually add: {}", path_line.trim());
+            println!("❌ No supported shell profile found. Manually add: {}", path_line.trim());
         }
     }
 
@@ -221,14 +272,6 @@ pub mod engine {
         }
     }
 
-    pub fn update(name: Option<&str>) {
-        if let Some(pkg_name) = name {
-            println!("🔄 Updating '{}'...", pkg_name);
-        } else {
-            println!("🔄 Updating all packages...");
-        }
-    }
-
     pub fn list(tag: Option<&str>) {
         let config = load_config();
         if config.packages.is_empty() {
@@ -245,11 +288,18 @@ pub mod engine {
         }
     }
 
+    fn check_write_permission(path: &Path) -> bool {
+        if !path.exists() {
+            return path.parent().map_or(false, |p| {
+                fs::metadata(p).map(|m| !m.permissions().readonly()).unwrap_or(false)
+            });
+        }
+        fs::metadata(path).map(|m| !m.permissions().readonly()).unwrap_or(false)
+    }
+
     fn ensure_dir_exists(path: &Path) {
         if !path.exists() {
-            let status = Command::new("mkdir").arg("-p").arg(path).status();
-            if status.is_err() || !status.unwrap().success() {
-                println!("🔐 Permissions required to create {}. Trying sudo...", path.display());
+            if fs::create_dir_all(path).is_err() {
                 let _ = Command::new("sudo").arg("mkdir").arg("-p").arg(path).status();
             }
         }
@@ -257,9 +307,9 @@ pub mod engine {
 
     fn copy_with_sudo(from: &Path, to: &Path) {
         if fs::copy(from, to).is_err() {
-            println!("🔐 Permissions required to write to {}. Trying sudo...", to.display());
             let _ = Command::new("sudo").arg("cp").arg(from).arg(to).status();
         }
+        let _ = Command::new("sudo").arg("chmod").arg("+x").arg(to).status();
     }
 
     fn detect_and_build(path: &Path, name: &str) -> Option<PathBuf> {
@@ -268,8 +318,21 @@ pub mod engine {
             let status = Command::new("cargo").arg("build").arg("--release").current_dir(path).status();
             if let Ok(s) = status {
                 if s.success() {
+                    // Try to find the binary. Some crates have different names than the repo.
+                    // For now, we assume repo name, but check target/release/
                     let bin = path.join("target/release").join(name);
                     if bin.exists() { return Some(bin); }
+                    
+                    // Fallback: look for ANY executable in target/release if name doesn't match
+                    if let Ok(entries) = fs::read_dir(path.join("target/release")) {
+                        for entry in entries.flatten() {
+                            let p = entry.path();
+                            if p.is_file() && !p.extension().map_or(false, |ext| ext == "d" || ext == "rlib") {
+                                // Basic heuristic for "is this the binary?"
+                                return Some(p);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -278,8 +341,7 @@ pub mod engine {
 
     pub fn set_default_path(new_path: &str) {
         let mut config = load_config();
-        let mut p = PathBuf::from(new_path);
-        if !p.ends_with("flix") { p = p.join("flix"); }
+        let p = enforce_flix_dir(PathBuf::from(new_path));
         ensure_dir_exists(&p);
         config.default_install_path = Some(p.clone());
         save_config(&config);

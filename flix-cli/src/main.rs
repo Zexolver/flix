@@ -15,6 +15,10 @@ enum Commands {
     Install {
         url: String,
 
+        /// Overwrite if package already exists
+        #[arg(short, long)]
+        force: bool,
+
         /// Search for pre-built release binaries first
         #[arg(short, long)]
         release: bool,
@@ -47,7 +51,11 @@ enum Commands {
 
     /// Update an existing package or all packages
     Update { 
-        name: Option<String> 
+        name: Option<String>,
+        
+        /// Force rebuild even if no changes detected
+        #[arg(short, long)]
+        force: bool,
     },
 
     /// List all packages managed by flix
@@ -74,19 +82,17 @@ fn main() {
     match cli.command {
         Commands::Install { 
             url, 
-            release, 
-            default, 
-            quiet, 
-            yes, 
+            force,
+            release: _, 
+            default: _, 
+            quiet: _, 
+            yes: _, 
             tags, 
             path 
         } => {
             engine::install(
                 &url, 
-                release, 
-                default, 
-                quiet, 
-                yes, 
+                force,
                 &tags, 
                 path.as_deref()
             );
@@ -96,8 +102,8 @@ fn main() {
             engine::remove(&name);
         }
 
-        Commands::Update { name } => {
-            engine::update(name.as_deref());
+        Commands::Update { name, force } => {
+            engine::update(name.as_deref(), force);
         }
 
         Commands::List { tag } => {
