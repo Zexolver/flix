@@ -19,7 +19,7 @@ enum Commands {
         #[arg(short, long)]
         release: bool,
 
-        /// Mark as default package (logic pending)
+        /// Mark as default package
         #[arg(short, long)]
         default: bool,
 
@@ -63,6 +63,9 @@ enum Commands {
         #[arg(short, long)]
         set: Option<String>,
     },
+
+    /// Automate adding the flix bin path to your shell profile
+    ShellInit,
 }
 
 fn main() {
@@ -108,9 +111,13 @@ fn main() {
                 let config = flix_core::config::load_config();
                 match config.default_install_path {
                     Some(p) => println!("📍 Current global default: {}", p.display()),
-                    None => println!("⚠️  No default path set. Run an install or use 'flix default --set <PATH>'."),
+                    None => println!("⚠️ No default path set. Run an install or use 'flix default --set <PATH>'."),
                 }
             }
+        }
+
+        Commands::ShellInit => {
+            engine::shell_init();
         }
     }
 }

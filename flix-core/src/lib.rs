@@ -91,14 +91,14 @@ pub mod engine {
     use super::config::{load_config, save_config, PackageEntry, interactive_setup};
     use git2::Repository;
     use std::env;
-    use std::fs;
-    use std::io;
+    use std::fs::{self, OpenOptions};
+    use std::io::{Write, Read};
     use std::path::{Path, PathBuf};
     use std::process::Command;
 
     pub fn install(
         url: &str,
-        _release: bool, // Prefix with _ to silence warning until implemented
+        _release: bool,
         _default: bool,
         _quiet: bool,
         yes: bool,
@@ -134,7 +134,14 @@ pub mod engine {
         if temp_dir.exists() { let _ = fs::remove_dir_all(&temp_dir); }
 
         println!("📦 Cloning repository...");
-        if Repository::clone(url, &temp_dir).is_err() { return; }
+        if let Err(e) = Repository::clone(url, &temp_dir) {
+            if e.to_string().contains("Auth") || e.to_string().contains("callback") {
+                eprintln!("❌ Error: Repository is private or requires authentication.");
+            } else {
+                eprintln!("❌ Error: Repository not found. Check the URL.");
+            }
+            return;
+        }
 
         if let Some(bin_file) = detect_and_build(&temp_dir, &package_name) {
             let final_dest = install_dir.join(&package_name);
@@ -150,6 +157,51 @@ pub mod engine {
             });
             save_config(&config);
             println!("✅ Successfully installed '{}'!", package_name);
+        } else {
+            eprintln!("❌ Build failed: No Rust binary was generated.");
+        }
+    }
+
+    pub fn shell_init() {
+        let config = load_config();
+        let Some(install_path) = config.default_install_path else {
+            println!("⚠️  No default path set. Run an install first!");
+            return;
+        };
+
+        let path_line = format!("\nexport PATH=\"$PATH:{}\"", install_path.display());
+        let home = env::var("HOME").expect("Could not find HOME directory");
+        
+        // Profiles to check
+        let profiles = vec![
+            format!("{}/.bashrc", home),
+            format!("{}/.zshrc", home),
+        ];
+
+        let mut updated = false;
+        for profile_path in profiles {
+            let path = Path::new(&profile_path);
+            if path.exists() {
+                let mut contents = String::new();
+                fs::File::open(path).unwrap().read_to_string(&mut contents).unwrap();
+                
+                if !contents.contains(&path_line.trim()) {
+                    let mut file = OpenOptions::new().append(true).open(path).unwrap();
+                    writeln!(file, "{}", path_line).expect("Failed to write to profile");
+                    println!("✅ Added Flix to {}", profile_path);
+                    updated = true;
+                } else {
+                    println!("ℹ️  Flix is already in {}", profile_path);
+                    updated = true;
+                }
+            }
+        }
+
+        if updated {
+            println!("\n✨ Path updated! Restart your terminal or run: source ~/.bashrc (or ~/.zshrc)");
+        } else {
+            println!("❌ No supported shell profile found (.bashrc or .zshrc).");
+            println!("Manually add: {}", path_line.trim());
         }
     }
 
@@ -158,7 +210,6 @@ pub mod engine {
         if let Some(entry) = config.packages.remove(name) {
             println!("🗑️ Removing binary: {}", entry.bin_path.display());
             if entry.bin_path.exists() {
-                // Try normal removal, fall back to sudo if it fails
                 if fs::remove_file(&entry.bin_path).is_err() {
                     let _ = Command::new("sudo").arg("rm").arg(&entry.bin_path).status();
                 }
@@ -173,7 +224,6 @@ pub mod engine {
     pub fn update(name: Option<&str>) {
         if let Some(pkg_name) = name {
             println!("🔄 Updating '{}'...", pkg_name);
-            // Logic: find source, re-clone, re-build
         } else {
             println!("🔄 Updating all packages...");
         }
@@ -200,30 +250,28 @@ pub mod engine {
             let status = Command::new("mkdir").arg("-p").arg(path).status();
             if status.is_err() || !status.unwrap().success() {
                 println!("🔐 Permissions required to create {}. Trying sudo...", path.display());
-                Command::new("sudo").arg("mkdir").arg("-p").arg(path).status().expect("Sudo failed");
+                let _ = Command::new("sudo").arg("mkdir").arg("-p").arg(path).status();
             }
         }
     }
 
     fn copy_with_sudo(from: &Path, to: &Path) {
-        let result = fs::copy(from, to);
-        if result.is_err() {
+        if fs::copy(from, to).is_err() {
             println!("🔐 Permissions required to write to {}. Trying sudo...", to.display());
-            Command::new("sudo")
-                .arg("cp")
-                .arg(from)
-                .arg(to)
-                .status()
-                .expect("Failed to copy even with sudo");
+            let _ = Command::new("sudo").arg("cp").arg(from).arg(to).status();
         }
     }
 
     fn detect_and_build(path: &Path, name: &str) -> Option<PathBuf> {
         if path.join("Cargo.toml").exists() {
             println!("🦀 Rust project detected. Building...");
-            let _ = Command::new("cargo").arg("build").arg("--release").current_dir(path).status();
-            let bin = path.join("target/release").join(name);
-            if bin.exists() { return Some(bin); }
+            let status = Command::new("cargo").arg("build").arg("--release").current_dir(path).status();
+            if let Ok(s) = status {
+                if s.success() {
+                    let bin = path.join("target/release").join(name);
+                    if bin.exists() { return Some(bin); }
+                }
+            }
         }
         None
     }
@@ -232,7 +280,6 @@ pub mod engine {
         let mut config = load_config();
         let mut p = PathBuf::from(new_path);
         if !p.ends_with("flix") { p = p.join("flix"); }
-        
         ensure_dir_exists(&p);
         config.default_install_path = Some(p.clone());
         save_config(&config);
