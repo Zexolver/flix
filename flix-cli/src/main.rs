@@ -2,12 +2,8 @@ use clap::{Parser, Subcommand};
 use flix_core::engine;
 
 #[derive(Parser)]
-#[command(
-    name = "flix", 
-    version = "0.1.0", 
-    about = "Friendly, Lightweight, Xtensible installer", 
-    long_about = None
-)]
+#[command(name = "flix")]
+#[command(about = "An organized, blazingly fast package manager", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -15,68 +11,106 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Install a repository from a Git URL
+    /// Install a package from a git URL
     Install {
-        /// URL of the git repository
         url: String,
-        
-        /// Automatically use the default branch (skip prompts)
-        #[arg(short = 'd', long)]
+
+        /// Search for pre-built release binaries first
+        #[arg(short, long)]
+        release: bool,
+
+        /// Mark as default package (logic pending)
+        #[arg(short, long)]
         default: bool,
-        
-        /// Suppress output from build commands
-        #[arg(short = 'q', long)]
+
+        /// Reduce output verbosity
+        #[arg(short, long)]
         quiet: bool,
-        
-        /// Auto-confirm any installation prompts
-        #[arg(short = 'y', long)]
+
+        /// Skip all prompts (automatic 'yes')
+        #[arg(short, long)]
         yes: bool,
-        
-        /// Add custom tags (can be used multiple times, e.g., -t rice -t dev)
-        #[arg(short = 't', long)]
-        tag: Vec<String>,
-        
-        /// Override the default installation path
-        #[arg(short = 'p', long)]
+
+        /// Assign tags to this package (comma-separated)
+        #[arg(short, long, value_delimiter = ',')]
+        tags: Vec<String>,
+
+        /// Specify a custom installation path for this package
+        #[arg(short, long)]
         path: Option<String>,
     },
-    
-    /// Remove an installed package
-    Remove {
-        /// Name of the package to remove
-        name: String,
+
+    /// Remove an installed package and its binary
+    Remove { 
+        name: String 
     },
-    
-    /// Update installed packages
-    Update {
-        /// Specific package to update (updates all if omitted)
-        name: Option<String>,
+
+    /// Update an existing package or all packages
+    Update { 
+        name: Option<String> 
     },
-    
-    /// List installed packages
+
+    /// List all packages managed by flix
     List {
-        /// Filter the list by a specific tag
-        #[arg(short = 't', long)]
+        /// Filter packages by tag
+        #[arg(short, long)]
         tag: Option<String>,
+    },
+
+    /// Manage the global default installation directory
+    Default {
+        /// Set a new global default path
+        #[arg(short, long)]
+        set: Option<String>,
     },
 }
 
 fn main() {
     let cli = Cli::parse();
 
-    // Route the CLI commands to the core engine
-    match &cli.command {
-        Commands::Install { url, default, quiet, yes, tag, path } => {
-            engine::install(url, *default, *quiet, *yes, tag, path.as_deref());
+    match cli.command {
+        Commands::Install { 
+            url, 
+            release, 
+            default, 
+            quiet, 
+            yes, 
+            tags, 
+            path 
+        } => {
+            engine::install(
+                &url, 
+                release, 
+                default, 
+                quiet, 
+                yes, 
+                &tags, 
+                path.as_deref()
+            );
         }
+
         Commands::Remove { name } => {
-            engine::remove(name);
+            engine::remove(&name);
         }
+
         Commands::Update { name } => {
             engine::update(name.as_deref());
         }
+
         Commands::List { tag } => {
             engine::list(tag.as_deref());
+        }
+
+        Commands::Default { set } => {
+            if let Some(new_path) = set {
+                engine::set_default_path(&new_path);
+            } else {
+                let config = flix_core::config::load_config();
+                match config.default_install_path {
+                    Some(p) => println!("📍 Current global default: {}", p.display()),
+                    None => println!("⚠️  No default path set. Run an install or use 'flix default --set <PATH>'."),
+                }
+            }
         }
     }
 }
