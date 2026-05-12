@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "flix-cli",
+    "flix-ui",
+    "flix-core",
+]
+resolver = "2"
