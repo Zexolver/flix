@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 flix-core = { path = "../flix-core" }
 clap = { version = "4.5", features = ["derive"] }
+clap_complete = "4.5.1"

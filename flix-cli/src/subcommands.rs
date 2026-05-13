@@ -66,4 +66,10 @@ pub enum Commands {
 
     /// Run the interactive first-time setup
     Setup,
+    
+    #[command(hide = true)]
+    GenerateCompletion {
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
+    },
 }

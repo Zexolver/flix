@@ -1,6 +1,8 @@
 mod subcommands;
 
-use clap::Parser;
+use clap::{Parser, CommandFactory};
+use clap_complete::generate;
+use std::io;
 use subcommands::Commands;
 
 #[derive(Parser)]
@@ -42,8 +44,6 @@ fn main() {
 
         Commands::Default { set } => {
             if let Some(path) = set {
-                // We will build out a specific config-setter for this later, 
-                // but for now let's just acknowledge it.
                 println!("⚙️ Feature coming soon: Set default path to {}", path);
             }
         }
@@ -54,6 +54,12 @@ fn main() {
 
         Commands::Setup => {
             flix_core::engine::self_install();
+        }
+
+        Commands::GenerateCompletion { shell } => {
+            let mut cmd = Cli::command();
+            let name = cmd.get_name().to_string();
+            generate(shell, &mut cmd, name, &mut io::stdout());
         }
     }
 }
