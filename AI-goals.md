@@ -19,10 +19,18 @@ The project is divided into three crates:
 - [x] Modularize `engine.rs` into a clean directory structure to prevent AI hallucinations.
 - [x] Add quiet mode (`-q`) to suppress Cargo build noise.
 
-## 🚧 Immediate Next Steps
-- [ ] **GitHub Release Scraper**: Update `installer.rs` to support downloading pre-built binaries from GitHub Releases instead of always compiling from source.
-- [ ] **Update Command**: Polish the `flix update` logic to handle pulling new commits and rebuilding.
-- [ ] **Remove Command**: Polish the auto-confirm (`-y`) logic for `flix remove`.
+## ✅ Completed (v0.1.2 Infrastructure)
+- [x] **ARM64 Linker Support**: Added `.cargo/config.toml` to force `lld` linker, fixing relocation errors on Zinuxbook/AArch64.
+- [x] **Global System Integration**: Established `/usr/local/flix/bin` and `/usr/local/flix/etc` as standard global paths.
+- [x] **Dynamic Shell Completion**: Integrated `clap-complete` with a custom Bash/Zsh dynamic wrapper that reads installed packages directly from the TOML for `update` and `remove` commands.
+- [x] **Shell-Init Logic**: Automates PATH updates and completion sourcing for `.bashrc`, `.zshrc`, and `.profile`.
+- [x] **Modularized Engine**: Cleaned up the `engine.rs` monolith into separate modules.
+
+## 🚧 Immediate Next Steps (v0.1.2)
+- [ ] **GitHub Release Scraper**: Implement logic in `installer.rs` to fetch pre-built binaries from GitHub Releases to avoid long compile times when a binary is available.
+- [ ] **Flix Doctor**: Add a `doctor` command to verify PATH health, directory permissions, and linker availability.
+- [ ] **Concurrency**: Implement parallel processing for the `flix update` command to check multiple git repos at once.
+- [ ] **Lockfile Implementation**: Add a `flix.lock` to ensure deterministic builds across different machines.
 
 ## 🔮 Future Backlog
 - [ ] Cross-platform support (Windows/macOS optimizations).
