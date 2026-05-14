@@ -61,5 +61,12 @@ fn main() {
             let name = cmd.get_name().to_string();
             generate(shell, &mut cmd, name, &mut io::stdout());
         }
+
+        Commands::_ListInstalled => {
+            let config = flix_core::config::load_config();
+            for name in config.packages.keys() {
+                println!("{}", name);
+            }
+        }
     }
 }

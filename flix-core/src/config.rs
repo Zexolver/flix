@@ -11,7 +11,7 @@ pub struct FlixConfig {
     pub packages: BTreeMap<String, PackageEntry>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PackageEntry {
     pub source: String,
     pub tags: Vec<String>,

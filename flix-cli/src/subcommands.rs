@@ -67,9 +67,14 @@ pub enum Commands {
     /// Run the interactive first-time setup
     Setup,
     
+    /// Internal: Generate static completion scripts
     #[command(hide = true)]
     GenerateCompletion {
         #[arg(value_enum)]
         shell: clap_complete::Shell,
     },
+
+    /// Internal: List installed package names for dynamic completion
+    #[command(name = "_list-installed", hide = true)]
+    _ListInstalled,
 }
