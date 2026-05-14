@@ -30,7 +30,11 @@ pub fn install(
         println!("🔍 Searching for pre-built binary for '{}'...", package_name);
         if let Some(dl_url) = scraper::find_github_asset_url(url_clean, git_ref.as_deref()) {
             if let Some(bin_path) = downloader::download_and_unpack(&dl_url, &package_name) {
-                finalize_install(&mut config, &package_name, url, bin_path, &shared, "RELEASE", git_ref);
+                // Dynamically extract the version string instead of using a hardcoded "RELEASE" placeholder
+                let version_tag = scraper::extract_tag_from_url(&dl_url)
+                    .unwrap_or_else(|| "RELEASE".to_string());
+
+                finalize_install(&mut config, &package_name, url, bin_path, &shared, &version_tag, git_ref);
                 return;
             }
         }

@@ -14,7 +14,7 @@ pub fn get_system_info() -> SystemInfo {
 
 pub fn get_search_terms() -> Vec<String> {
     let info = get_system_info();
-    let mut terms = vec![info.os.to_lowercase()];
+    let mut terms = Vec::new();
     
     // Add fuzzy matches for architecture
     let arch = info.arch.to_lowercase();
