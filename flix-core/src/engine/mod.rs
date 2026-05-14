@@ -4,6 +4,8 @@ pub mod installer;
 pub mod registry;
 pub mod system;
 pub mod platform;
+pub mod scraper;
+pub mod downloader;
 
 // Re-export public functions so the CLI doesn't break
 pub use installer::install;
