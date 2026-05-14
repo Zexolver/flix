@@ -1,54 +1,18 @@
-use crate::config::load_config;
-use crate::engine::system::fs::{copy_with_sudo, ensure_dir_exists};
+use crate::engine::system::fs::copy_with_sudo;
 use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
-pub fn shell_init() {
-    let config = load_config();
-    let base_dir = config.default_install_path.unwrap_or_else(|| PathBuf::from("/usr/local/flix/bin"));
-    let etc_dir = base_dir.parent().unwrap().join("etc"); 
-    
-    ensure_dir_exists(&etc_dir);
-
-    let path_str = base_dir.to_string_lossy().to_string();
-    let path_line = format!("\n# Flix Package Manager\nexport PATH=\"$PATH:{}\"", path_str);
-    
-    let home = env::var("HOME").unwrap_or_else(|_| "/home".into());
-    let shells = [".bashrc", ".zshrc", ".profile"];
-    let mut updated = false;
-
-    // --- 1. Path Setup ---
-    for sh in shells {
-        let p = PathBuf::from(&home).join(sh);
-        if p.exists() {
-            let contents = fs::read_to_string(&p).unwrap_or_default();
-            
-            if !contents.contains(&path_str) {
-                if let Ok(mut file) = OpenOptions::new().append(true).open(&p) {
-                    if let Err(e) = writeln!(file, "{}", path_line) {
-                        eprintln!("❌ Failed to write to {}: {}", sh, e);
-                    } else {
-                        println!("✅ Added Flix to {}", sh);
-                        updated = true;
-                    }
-                }
-            } else {
-                println!("ℹ️ Flix path already exists in {}", sh);
-            }
-        }
-    }
-
-    // --- 2. Autocomplete Setup ---
+pub(crate) fn setup_autocomplete(etc_dir: &Path, home: &str) -> bool {
     let exe_path = env::current_exe().expect("Failed to get current exe");
     let global_comp_script = etc_dir.join("flix_completion.bash");
+    let mut updated = false;
 
     if let Ok(output) = Command::new(&exe_path).arg("generate-completion").arg("bash").output() {
         let mut script = String::from_utf8_lossy(&output.stdout).to_string();
         
-        // Use the binary itself to list packages. This is cleaner than sed!
         let dynamic_wrapper = r#"
 # --- FLIX DYNAMIC WRAPPER ---
 _flix_dynamic() {
@@ -81,7 +45,7 @@ complete -F _flix_dynamic -o bashdefault -o default flix
             let source_line = format!("source {}", global_comp_script.display());
             
             for sh in [".bashrc", ".zshrc"] {
-                let p = PathBuf::from(&home).join(sh);
+                let p = PathBuf::from(home).join(sh);
                 if p.exists() {
                     let contents = fs::read_to_string(&p).unwrap_or_default();
                     if !contents.contains(&source_line) {
@@ -95,9 +59,5 @@ complete -F _flix_dynamic -o bashdefault -o default flix
             }
         }
     }
-
-    if updated {
-        println!("\n✨ PATH and Autocomplete updated! To use immediately, run:");
-        println!("    source ~/.bashrc");
-    }
+    updated
 }
