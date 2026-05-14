@@ -4,7 +4,7 @@ pub mod installer;
 pub mod registry;
 pub mod system;
 pub mod platform;
-pub mod scraper;
+pub mod providers;
 pub mod downloader;
 
 // Re-export public functions so the CLI doesn't break

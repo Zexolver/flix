@@ -1,6 +1,6 @@
 use crate::config::load_config;
 use crate::flags::SharedArgs;
-use crate::engine::{git_manager, builder, scraper, downloader};
+use crate::engine::{git_manager, builder, providers, downloader};
 use crate::engine::installer::finalize::finalize_install;
 use std::{env, fs};
 
@@ -31,10 +31,13 @@ pub fn install(
     }
 
     if use_release {
-        println!("🔍 Searching for pre-built binary for '{}'...", package_name);
-        if let Some(dl_url) = scraper::find_github_asset_url(url_clean, git_ref.as_deref()) {
+        // Instantiate the appropriate provider
+        let provider = providers::get_provider(url_clean);
+        println!("🔍 Searching for pre-built binary for '{}' via {}...", package_name, provider.name());
+        
+        if let Some(dl_url) = provider.find_asset_url(url_clean, git_ref.as_deref()) {
             if let Some(bin_path) = downloader::download_and_unpack(&dl_url, &package_name) {
-                let version_tag = scraper::extract_tag_from_url(&dl_url)
+                let version_tag = provider.extract_tag(&dl_url)
                     .unwrap_or_else(|| "RELEASE".to_string());
 
                 finalize_install(&mut config, &package_name, url, bin_path, &shared, &version_tag, git_ref);
