@@ -12,6 +12,15 @@ pub fn install(
     _is_default: bool, 
     git_ref: Option<String>
 ) {
+    // --- URL Guardrail ---
+    if !url.starts_with("http://") && !url.starts_with("https://") && !url.starts_with("git://") && !url.starts_with("git@") {
+        eprintln!("❌ Error: '{}' does not look like a valid repository URL.", url);
+        println!("💡 Tip: If you are trying to update an existing package, run: flix update {}", url);
+        println!("💡 Tip: If you are trying to install a new package, provide the full URL (e.g., https://github.com/user/repo)");
+        std::process::exit(1);
+    }
+    // ---------------------
+
     let mut config = load_config();
     let url_clean = url.trim_end_matches(".git");
     let package_name = url_clean.split('/').last().unwrap_or("app").to_string();
