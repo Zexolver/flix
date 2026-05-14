@@ -16,6 +16,7 @@ pub struct PackageEntry {
     pub source: String,
     pub tags: Vec<String>,
     pub version_hash: String,
+    pub version_tag: Option<String>,
     pub bin_path: PathBuf,
 }
 

@@ -3,6 +3,7 @@ pub mod git_manager;
 pub mod installer;
 pub mod registry;
 pub mod system;
+pub mod platform;
 
 // Re-export public functions so the CLI doesn't break
 pub use installer::install;

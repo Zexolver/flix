@@ -6,24 +6,28 @@ use std::io::{self, Write};
 
 pub fn list(shared: SharedArgs, show_version: bool) {
     let config = load_config();
-    println!("{:<15} {:<10} {:<20}", "Package", "Version", "Tags");
-    println!("{:-<45}", "");
+    println!("{:<20} {:<15} {:<20}", "Package", "Version", "Tags");
+    println!("{:-<55}", "");
     
     for (name, entry) in config.packages.iter() {
-        // Tag filtering
         if !shared.tags.is_empty() {
             if !shared.tags.iter().any(|t| entry.tags.contains(t)) { continue; }
         }
 
-        // Path filtering
         if let Some(ref p) = shared.path {
             if entry.bin_path.parent().map(|d| d.to_string_lossy().to_string()) != Some(p.clone()) {
                 continue;
             }
         }
 
-        let version_display = if show_version { &entry.version_hash } else { "---" };
-        println!("{:<15} {:<10} {:<20?}", name, version_display, entry.tags);
+        // Logic: Prioritize Tag (v0.1.0) -> Hash (a1b2c3d4) -> Default (---)
+        let version_display = if show_version {
+            entry.version_tag.as_ref().unwrap_or(&entry.version_hash)
+        } else {
+            "---"
+        };
+
+        println!("{:<20} {:<15} {:<20?}", name, version_display, entry.tags);
     }
 }
 
@@ -54,8 +58,6 @@ pub fn remove(name: &str, shared: SharedArgs) {
 
 pub fn update(name: Option<&str>, shared: SharedArgs, release: bool) {
     let config = load_config();
-    
-    // Gather which packages we are targeting
     let mut targets = Vec::new();
 
     if let Some(pkg_name) = name {
@@ -75,15 +77,13 @@ pub fn update(name: Option<&str>, shared: SharedArgs, release: bool) {
         }
     }
 
-    // Process the updates
     for (pkg_name, entry) in targets {
         if !shared.force {
-            // Since we don't have remote hash comparison yet, we assume it's up to date
-            // unless the user explicitly forces a reinstall.
             println!("✅ '{}' is already up to date. Use -f to force a fresh install.", pkg_name);
         } else {
             println!("🔄 Force updating '{}'...", pkg_name);
-            install(&entry.source, shared.clone(), release, false, None);
+            // Pass the existing version_tag through to the installer so we don't lose it
+            install(&entry.source, shared.clone(), release, false, entry.version_tag);
         }
     }
 }
