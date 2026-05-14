@@ -37,6 +37,20 @@ pub enum Commands {
         shared: SharedArgs,
     },
 
+    /// Manage tags for an installed package
+    Tag {
+        /// Name of the installed package
+        name: String,
+
+        /// Tags to add (comma-separated)
+        #[arg(short = 'a', long, value_delimiter = ',')]
+        add: Vec<String>,
+
+        /// Tags to remove (comma-separated)
+        #[arg(short = 'r', long, value_delimiter = ',')]
+        remove: Vec<String>,
+    },
+
     /// Update installed packages to their latest versions
     Update {
         /// Optional: Name of a specific package to update

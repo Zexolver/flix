@@ -9,5 +9,6 @@ pub mod downloader;
 
 // Re-export public functions so the CLI doesn't break
 pub use installer::install;
+pub use registry::tags::manage_tags;
 pub use registry::{list, remove, update};
 pub use system::{self_install, shell_init};

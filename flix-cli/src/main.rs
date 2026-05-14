@@ -33,6 +33,29 @@ fn main() {
         Commands::List { shared } => {
             flix_core::engine::list(shared);
         }
+        
+        Commands::Tag { name, add, remove } => {
+            match flix_core::engine::manage_tags(&name, add, remove) {
+                Ok((added_tags, removed_tags)) => {
+                    for t in &removed_tags {
+                        println!("➖ Removed tag '{}' from '{}'", t, name);
+                    }
+                    for t in &added_tags {
+                        println!("➕ Added tag '{}' to '{}'", t, name);
+                    }
+                    
+                    if added_tags.is_empty() && removed_tags.is_empty() {
+                        println!("ℹ️ No changes made to tags for '{}'.", name);
+                    } else {
+                        println!("✅ Tags updated for '{}'.", name);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("❌ Error: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
 
         Commands::Update { name, shared, release } => {
             flix_core::engine::update(name.as_deref(), shared, release);
