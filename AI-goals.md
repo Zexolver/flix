@@ -26,12 +26,22 @@ The project is divided into three crates:
 - [x] **Shell-Init Logic**: Automates PATH updates and completion sourcing for `.bashrc`, `.zshrc`, and `.profile`.
 - [x] **Modularized Engine**: Cleaned up the `engine.rs` monolith into separate modules.
 
-## 🚧 Immediate Next Steps (v0.1.2)
-- [ ] **GitHub Release Scraper**: Implement logic in `installer.rs` to fetch pre-built binaries from GitHub Releases to avoid long compile times when a binary is available.
-- [ ] **Flix Doctor**: Add a `doctor` command to verify PATH health, directory permissions, and linker availability.
+## 🚧 Immediate Next Steps (v0.1.3)
+- [ ] **GitHub Release Scraper**: Implement logic in `installer.rs` to fetch pre-built binaries from GitHub Releases to avoid long compile times when a binary is available
 - [ ] **Concurrency**: Implement parallel processing for the `flix update` command to check multiple git repos at once.
 - [ ] **Lockfile Implementation**: Add a `flix.lock` to ensure deterministic builds across different machines.
 
+## v0.1.3: The "Binary First" Update (Current)
+- [ ] **System Intelligence**: Detect CPU arch and OS distro.
+- [ ] **Git Release Scraper**: Download/Extract binaries (tar.gz, zip, raw, deb).
+- [ ] **Smart Renaming**: Identify the actual binary inside a compressed archive.
+- [ ] **Enhanced Metadata**: Track both Git Hash and Release Tags (v1.0.0, etc.).
+- [ ] **Tag Management**: Support `-t` / `--tags` during install and force-reinstalls.
+
+## v0.1.4: Code Health & Refactoring
+- [ ] Modularize `installer.rs` (split into `source_install` and `binary_install`).
+- [ ] DRY (Don't Repeat Yourself) code cleanup.
+- [ ] Extensive doc-comments for AI context window optimization.
 ## 🔮 Future Backlog
 - [ ] Cross-platform support (Windows/macOS optimizations).
 - [ ] Build the `flix-ui` crate for an interactive terminal dashboard.
