@@ -1,7 +1,7 @@
 use crate::config::load_config;
 use crate::flags::SharedArgs;
 
-pub fn list(shared: SharedArgs, show_version: bool) {
+pub fn list(shared: SharedArgs) {
     let config = load_config();
     println!("{:<20} {:<15} {:<20}", "Package", "Version", "Tags");
     println!("{:-<55}", "");
@@ -17,12 +17,8 @@ pub fn list(shared: SharedArgs, show_version: bool) {
             }
         }
 
-        // Logic: Prioritize Tag (v0.1.0) -> Hash (a1b2c3d4) -> Default (---)
-        let version_display = if show_version {
-            entry.version_tag.as_ref().unwrap_or(&entry.version_hash)
-        } else {
-            "---"
-        };
+        // Logic: Prioritize Tag (v0.1.0) -> Hash (a1b2c3d4)
+        let version_display = entry.version_tag.as_deref().unwrap_or(&entry.version_hash);
 
         println!("{:<20} {:<15} {:<20?}", name, version_display, entry.tags);
     }

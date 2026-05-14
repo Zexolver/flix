@@ -30,8 +30,8 @@ fn main() {
             flix_core::engine::install(&url, shared, release, default, version);
         }
 
-        Commands::List { shared, show_version } => {
-            flix_core::engine::list(shared, show_version);
+        Commands::List { shared } => {
+            flix_core::engine::list(shared);
         }
 
         Commands::Update { name, shared, release } => {

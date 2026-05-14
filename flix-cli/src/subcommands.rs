@@ -35,10 +35,6 @@ pub enum Commands {
     List {
         #[command(flatten)]
         shared: SharedArgs,
-
-        /// Show installed versions/hashes in the output
-        #[arg(short = 'v', long)]
-        show_version: bool,
     },
 
     /// Update installed packages to their latest versions
