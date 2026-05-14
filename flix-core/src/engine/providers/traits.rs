@@ -11,4 +11,7 @@ pub trait Provider {
     
     /// Extracts the version tag (like "v1.5.1") from the site's asset URL or API.
     fn extract_tag(&self, asset_url: &str) -> Option<String>;
+
+    /// Attempts to resolve the latest release tag from the provider.
+    fn get_latest_tag(&self, repo_url: &str) -> Option<String>;
 }

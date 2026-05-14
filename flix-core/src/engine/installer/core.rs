@@ -10,7 +10,7 @@ pub fn install(
     shared: SharedArgs, 
     use_release: bool, 
     _is_default: bool, 
-    git_ref: Option<String>
+    mut git_ref: Option<String> 
 ) {
     // --- URL Guardrail ---
     if !url.starts_with("http://") && !url.starts_with("https://") && !url.starts_with("git://") && !url.starts_with("git@") {
@@ -44,7 +44,19 @@ pub fn install(
                 return;
             }
         }
+        
         println!("⚠️ No matching binary found. Falling back to source build...");
+        
+        // --- Grab the latest tag for source fallback if none was provided ---
+        if git_ref.is_none() {
+            println!("🏷️ Resolving latest release tag...");
+            if let Some(latest_tag) = provider.get_latest_tag(url_clean) {
+                println!("📌 Found latest release: {}", latest_tag);
+                git_ref = Some(latest_tag);
+            } else {
+                println!("⚠️ Could not resolve latest release tag, falling back to default branch.");
+            }
+        }
     }
 
     println!("🚀 Building '{}' from source...", package_name);

@@ -64,6 +64,21 @@ impl Provider for GithubProvider {
         }
         None
     }
+
+    fn get_latest_tag(&self, repo_url: &str) -> Option<String> {
+        let latest_url = format!("{}/releases/latest", repo_url.replace(".git", ""));
+        
+        // ureq will automatically follow the redirect from /latest to /tag/vX.X.X
+        if let Ok(res) = ureq::get(&latest_url).set("User-Agent", USER_AGENT).call() {
+            let final_url = res.get_url();
+            let parts: Vec<&str> = final_url.split("/releases/tag/").collect();
+            
+            if parts.len() > 1 {
+                return Some(parts[1].to_string());
+            }
+        }
+        None
+    }
 }
 
 /// Helper function that parses raw HTML looking for hrefs that match our OS/Arch heuristics.
